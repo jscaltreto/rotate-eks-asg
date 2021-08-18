@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	groups = kingpin.Arg("groups", "EKS Auto Scaling Groups to rotate").Required().Strings()
+	groups = kingpin.Arg("groups", "EKS Auto Scaling Groups to rotate. Omit to rotate all ASGs for the current cluster").Strings()
 )
 
 func init() {
@@ -22,7 +22,13 @@ func main() {
 	kingpin.Parse()
 	ctx, cancel := ctxutil.ContextWithCancelSignals(os.Kill, os.Interrupt)
 	defer cancel()
-	if err := rotator.RotateAll(ctx, *groups); err != nil {
-		log.Fatal(err)
+	if len(*groups) > 0 {
+		if err := rotator.RotateAll(ctx, *groups); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if err := rotator.RotateForCluster(ctx); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

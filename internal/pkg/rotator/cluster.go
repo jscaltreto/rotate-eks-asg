@@ -9,10 +9,12 @@ import (
 	"time"
 
 	coreV1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/kubectl/pkg/drain"
 
 	"github.com/tenjin/rotate-eks-asg/internal/pkg/cmd"
 )
@@ -26,13 +28,17 @@ var (
 	DefaultNodeAwaitReadinessTimeout = 10 * time.Second
 )
 
-func NewKubernetesClient() (*kubernetes.Clientset, error) {
+func GetClusterConfig() (*rest.Config, error) {
 	kcfg := os.Getenv("KUBECONFIG")
 	if kcfg == "" {
 		kcfg = DefaultKubeConfigPath
 	}
 
-	config, err := clientcmd.BuildConfigFromFlags("", kcfg)
+	return clientcmd.BuildConfigFromFlags("", kcfg)
+}
+
+func NewKubernetesClient() (*kubernetes.Clientset, error) {
+	config, err := GetClusterConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -113,17 +119,17 @@ func awaitNodeReadiness(ctx context.Context, k8s *kubernetes.Clientset, node *co
 	}
 }
 
-func GetNodeNameByInstanceID(ctx context.Context, k8s *kubernetes.Clientset, id string) (string, error) {
+func GetNodeByInstanceID(ctx context.Context, k8s *kubernetes.Clientset, id string) (*coreV1.Node, error) {
 	nodes, err := getClusterNodes(ctx, k8s)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, node := range nodes {
 		if strings.HasSuffix(node.Spec.ProviderID, id) {
-			return node.Name, nil
+			return node, nil
 		}
 	}
-	return "", fmt.Errorf("node '%s' is not part of the cluster", id)
+	return nil, fmt.Errorf("node '%s' is not part of the cluster", id)
 }
 
 func getClusterNodes(ctx context.Context, k8s *kubernetes.Clientset) ([]*coreV1.Node, error) {
@@ -139,12 +145,35 @@ func getClusterNodes(ctx context.Context, k8s *kubernetes.Clientset) ([]*coreV1.
 	return nodes, nil
 }
 
-func DrainNodeByName(ctx context.Context, name string) error {
-	return kubectl(ctx, "drain", "--delete-local-data=true", " --ignore-daemonsets=true", name)
+func getDrainHelper(ctx context.Context, k8s *kubernetes.Clientset) *drain.Helper {
+	return &drain.Helper{
+		Client:              k8s,
+		Force:               true,
+		GracePeriodSeconds:  -1,
+		IgnoreAllDaemonSets: true,
+		Out:                 os.Stdout,
+		ErrOut:              os.Stdout,
+		DeleteEmptyDirData:  true,
+		Timeout:             time.Duration(600) * time.Second,
+	}
 }
 
-func CordonNodeByName(ctx context.Context, name string) error {
-	return kubectl(ctx, "cordon", name)
+func DrainNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
+	helper := getDrainHelper(ctx, k8s)
+	err := drain.RunNodeDrain(helper, node.Name)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func CordonNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
+	helper := getDrainHelper(ctx, k8s)
+	err := drain.RunCordonOrUncordon(helper, node, true)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func kubectl(ctx context.Context, args ...string) error {

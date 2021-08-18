@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/eks"
 )
 
 type Group struct {
@@ -77,6 +78,22 @@ func DescribeInstanceByInternalDNS(
 	return instanceID, groupName, nil
 }
 
+func getAllAutoScalingGroups(client *autoscaling.AutoScaling) ([]*autoscaling.Group, error) {
+	var groups []*autoscaling.Group
+	in := &autoscaling.DescribeAutoScalingGroupsInput{
+		MaxRecords: aws.Int64(100),
+	}
+	err := client.DescribeAutoScalingGroupsPages(in,
+		func(page *autoscaling.DescribeAutoScalingGroupsOutput, lastPage bool) bool {
+			groups = append(groups, page.AutoScalingGroups...)
+			return !lastPage
+		})
+	if err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 func getAutoScalingGroup(client *autoscaling.AutoScaling, name string) (*autoscaling.Group, error) {
 	in := &autoscaling.DescribeAutoScalingGroupsInput{
 		AutoScalingGroupNames: aws.StringSlice([]string{name}),
@@ -118,4 +135,24 @@ func TerminateInstanceByID(client *ec2.EC2, id string) error {
 	}
 	log.Printf("Instance '%s' succesfully terminated.", id)
 	return nil
+}
+
+func getEKSCluserByURL(client *eks.EKS, url string) (*eks.Cluster, error) {
+	listOutput, err := client.ListClusters(nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, cluster := range listOutput.Clusters {
+		cluserInput := &eks.DescribeClusterInput{
+			Name: aws.String(*cluster),
+		}
+		clusterDesc, err := client.DescribeCluster(cluserInput)
+		if err != nil {
+			return nil, err
+		}
+		if clusterDesc.Cluster.Endpoint == &url {
+			return clusterDesc.Cluster, nil
+		}
+	}
+	return nil, fmt.Errorf("Unable to find cluster with URL %s", url)
 }

@@ -2,11 +2,13 @@ package rotator
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/eks"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
 )
@@ -15,6 +17,42 @@ func RotateAll(ctx context.Context, groups []string) error {
 	for _, group := range groups {
 		if err := Rotate(ctx, group); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func RotateForCluster(ctx context.Context) error {
+	sess, err := session.NewSession()
+	if err != nil {
+		return err
+	}
+	asgClient := autoscaling.New(sess)
+	eksClient := eks.New(sess)
+
+	k8sConfig, err := GetClusterConfig()
+	if err != nil {
+		return err
+	}
+
+	eksCluster, err := getEKSCluserByURL(eksClient, k8sConfig.Host)
+	if err != nil {
+		return err
+	}
+	ownerKey := fmt.Sprintf("k8s.io/cluster/%s", *eksCluster.Name)
+
+	groups, err := getAllAutoScalingGroups(asgClient)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		for _, tag := range group.Tags {
+			if tag.Key == &ownerKey && *tag.Value == "owned" {
+				log.Printf("ASG %s is owned by cluster %s.", *group.AutoScalingGroupName, *eksCluster.Name)
+				if err := Rotate(ctx, *group.AutoScalingGroupName); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -73,11 +111,11 @@ func RotateInstance(
 	instanceId string,
 	removeNode bool,
 ) error {
-	name, err := GetNodeNameByInstanceID(ctx, k8s, instanceId)
+	node, err := GetNodeByInstanceID(ctx, k8s, instanceId)
 	if err != nil {
 		return err
 	}
-	if err := CordonNodeByName(ctx, name); err != nil {
+	if err := CordonNode(ctx, k8s, node); err != nil {
 		return err
 	}
 	nodeSet, err := GetClusterNodeSet(ctx, k8s)
@@ -94,7 +132,7 @@ func RotateInstance(
 		}
 	}
 
-	if err := DrainNodeByName(ctx, name); err != nil {
+	if err := DrainNode(ctx, k8s, node); err != nil {
 		return err
 	}
 	if err := TerminateInstanceByID(ec2, instanceId); err != nil {
