@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
@@ -15,13 +16,14 @@ import (
 
 type Rotator struct {
 	dryrun  bool
+	limit   uint
 	session *session.Session
 	asg     *autoscaling.AutoScaling
 	ec2     *ec2.EC2
 	k8s     *kubernetes.Clientset
 }
 
-func NewRotator(dryrun bool) (*Rotator, error) {
+func NewRotator(dryrun bool, limit uint) (*Rotator, error) {
 	sess, err := session.NewSession()
 	if err != nil {
 		return nil, err
@@ -35,6 +37,7 @@ func NewRotator(dryrun bool) (*Rotator, error) {
 
 	r := &Rotator{
 		dryrun:  dryrun,
+		limit:   limit,
 		session: sess,
 		asg:     asgClient,
 		ec2:     ec2Client,
@@ -72,32 +75,45 @@ func (r *Rotator) RotateForCluster(ctx context.Context) error {
 		return err
 	}
 	found := false
+	var instanceGroups InstanceGroups
 	for _, group := range groups {
 		for _, tag := range group.Tags {
 			if *tag.Key == ownerKey && *tag.Value == "owned" {
-				log.Printf("ASG %s is owned by cluster %s.\n", *group.AutoScalingGroupName, *eksCluster.Name)
+				log.Printf("ASG '%s' is owned by cluster '%s'.\n", *group.AutoScalingGroupName, *eksCluster.Name)
 				found = true
-				if err := r.Rotate(ctx, *group.AutoScalingGroupName); err != nil {
+				igs, err := GetInstancesForGroup(r.ec2, group)
+				if err != nil {
 					return err
 				}
+				instanceGroups = append(instanceGroups, igs...)
+				break
 			}
 		}
 	}
 	if !found {
-		return fmt.Errorf("no ASGs found for cluster %s", *eksCluster.Name)
+		return fmt.Errorf("no ASGs found for cluster '%s'", *eksCluster.Name)
 	}
-	return nil
+	return r.RotateInstanceGroups(ctx, instanceGroups)
 }
 
 func (r *Rotator) Rotate(ctx context.Context, groupId string) error {
-	group, err := DescribeAutoScalingGroup(r.asg, groupId)
+	instanceGroups, err := DescribeAutoScalingGroup(r.asg, r.ec2, groupId)
 	if err != nil {
 		return err
 	}
-
 	log.Printf("Rotating ASG '%s'...\n", groupId)
-	for _, id := range group.instanceIds {
-		if err := r.RotateInstance(ctx, groupId, id, false); err != nil {
+	return r.RotateInstanceGroups(ctx, instanceGroups)
+}
+
+func (r *Rotator) RotateInstanceGroups(ctx context.Context, instanceGroups InstanceGroups) error {
+	sort.Sort(ByAge{instanceGroups})
+	if r.limit > 0 {
+		instanceGroups = instanceGroups[:r.limit]
+	}
+
+	log.Printf("Rotating %d nodes, oldest to newest.", len(instanceGroups))
+	for _, group := range instanceGroups {
+		if err := r.RotateInstance(ctx, group, false); err != nil {
 			return err
 		}
 	}
@@ -105,25 +121,27 @@ func (r *Rotator) Rotate(ctx context.Context, groupId string) error {
 }
 
 func (r *Rotator) RotateByInternalDNS(ctx context.Context, instanceInternalIP string, removeNode bool) error {
-	instanceID, groupID, err := DescribeInstanceByInternalDNS(r.ec2, r.asg, instanceInternalIP)
+	instanceGroup, err := DescribeInstanceByInternalDNS(r.ec2, r.asg, instanceInternalIP)
 	if err != nil {
 		return err
 	}
-	return r.RotateInstance(ctx, groupID, instanceID, removeNode)
+	return r.RotateInstance(ctx, instanceGroup, removeNode)
 }
 
 func (r *Rotator) RotateInstance(
 	ctx context.Context,
-	groupId string,
-	instanceId string,
+	instanceGroup *InstanceGroup,
 	removeNode bool,
 ) error {
+	instanceId := instanceGroup.instanceId()
+	groupId := instanceGroup.groupId()
+
 	node, err := GetNodeByInstanceID(ctx, r.k8s, instanceId)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Rotating node %s (instance %s).\n", node.Name, instanceId)
+	log.Printf("Rotating node '%s' (instance '%s').\n", node.Name, instanceId)
 
 	if r.dryrun {
 		log.Println("DRY RUN is enabled. Skipping rotate.")

@@ -138,6 +138,7 @@ func getClusterNodes(ctx context.Context, k8s *kubernetes.Clientset) ([]*coreV1.
 
 func getDrainHelper(ctx context.Context, k8s *kubernetes.Clientset) *drain.Helper {
 	return &drain.Helper{
+		Ctx:                 ctx,
 		Client:              k8s,
 		Force:               true,
 		GracePeriodSeconds:  -1,
@@ -150,7 +151,7 @@ func getDrainHelper(ctx context.Context, k8s *kubernetes.Clientset) *drain.Helpe
 }
 
 func DrainNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
-	log.Printf("Draining node %s.", node.Name)
+	log.Printf("Draining node '%s'.", node.Name)
 	helper := getDrainHelper(ctx, k8s)
 	err := drain.RunNodeDrain(helper, node.Name)
 	if err != nil {
@@ -160,7 +161,7 @@ func DrainNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node
 }
 
 func CordonNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
-	log.Printf("Cordoning node %s.", node.Name)
+	log.Printf("Cordoning node '%s'.", node.Name)
 	helper := getDrainHelper(ctx, k8s)
 	err := drain.RunCordonOrUncordon(helper, node, true)
 	if err != nil {

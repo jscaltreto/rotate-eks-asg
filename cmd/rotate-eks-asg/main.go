@@ -13,6 +13,7 @@ import (
 var (
 	groups = kingpin.Arg("groups", "EKS Auto Scaling Groups to rotate. Omit to rotate all ASGs for the current cluster").Strings()
 	dryRun = kingpin.Flag("dryrun", "Don't actually rotate nodes, just print what would be rotated").Default("false").Bool()
+	limit  = kingpin.Flag("limit", "Only rotate [limit] oldest node(s)").Uint()
 )
 
 func init() {
@@ -23,7 +24,7 @@ func main() {
 	kingpin.Parse()
 	ctx, cancel := ctxutil.ContextWithCancelSignals(os.Kill, os.Interrupt)
 
-	r, err := rotator.NewRotator(*dryRun)
+	r, err := rotator.NewRotator(*dryRun, *limit)
 	if err != nil {
 		log.Fatal(err)
 	}
