@@ -19,22 +19,15 @@ import (
 	"github.com/tenjin/rotate-eks-asg/internal/pkg/cmd"
 )
 
-const (
-	DefaultKubeConfigPath = "/tmp/.kube/config"
-)
-
 var (
 	DefaultNodeAwaitJoinTimeout      = 30 * time.Second
 	DefaultNodeAwaitReadinessTimeout = 10 * time.Second
 )
 
 func GetClusterConfig() (*rest.Config, error) {
-	kcfg := os.Getenv("KUBECONFIG")
-	if kcfg == "" {
-		kcfg = DefaultKubeConfigPath
-	}
-
-	return clientcmd.BuildConfigFromFlags("", kcfg)
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
 }
 
 func NewKubernetesClient() (*kubernetes.Clientset, error) {

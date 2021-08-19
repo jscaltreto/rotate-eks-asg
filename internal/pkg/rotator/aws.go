@@ -150,9 +150,9 @@ func getEKSCluserByURL(client *eks.EKS, url string) (*eks.Cluster, error) {
 		if err != nil {
 			return nil, err
 		}
-		if clusterDesc.Cluster.Endpoint == &url {
+		if *clusterDesc.Cluster.Endpoint == url {
 			return clusterDesc.Cluster, nil
 		}
 	}
-	return nil, fmt.Errorf("Unable to find cluster with URL %s", url)
+	return nil, fmt.Errorf("unable to find cluster with URL %s", url)
 }

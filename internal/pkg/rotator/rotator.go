@@ -13,22 +13,47 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
 )
 
-func RotateAll(ctx context.Context, groups []string) error {
+type Rotator struct {
+	dryrun  bool
+	session *session.Session
+	asg     *autoscaling.AutoScaling
+	ec2     *ec2.EC2
+	k8s     *kubernetes.Clientset
+}
+
+func NewRotator(dryrun bool) (*Rotator, error) {
+	sess, err := session.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	asgClient := autoscaling.New(sess)
+	ec2Client := ec2.New(sess)
+	k8s, err := NewKubernetesClient()
+	if err != nil {
+		return nil, err
+	}
+
+	r := &Rotator{
+		dryrun:  dryrun,
+		session: sess,
+		asg:     asgClient,
+		ec2:     ec2Client,
+		k8s:     k8s,
+	}
+	return r, nil
+}
+
+func (r *Rotator) RotateAll(ctx context.Context, groups []string) error {
 	for _, group := range groups {
-		if err := Rotate(ctx, group); err != nil {
+		if err := r.Rotate(ctx, group); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func RotateForCluster(ctx context.Context) error {
-	sess, err := session.NewSession()
-	if err != nil {
-		return err
-	}
-	asgClient := autoscaling.New(sess)
-	eksClient := eks.New(sess)
+func (r *Rotator) RotateForCluster(ctx context.Context) error {
+	eksClient := eks.New(r.session)
 
 	k8sConfig, err := GetClusterConfig()
 	if err != nil {
@@ -39,103 +64,93 @@ func RotateForCluster(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	ownerKey := fmt.Sprintf("k8s.io/cluster/%s", *eksCluster.Name)
 
-	groups, err := getAllAutoScalingGroups(asgClient)
+	groups, err := getAllAutoScalingGroups(r.asg)
 	if err != nil {
 		return err
 	}
+	found := false
 	for _, group := range groups {
 		for _, tag := range group.Tags {
-			if tag.Key == &ownerKey && *tag.Value == "owned" {
-				log.Printf("ASG %s is owned by cluster %s.", *group.AutoScalingGroupName, *eksCluster.Name)
-				if err := Rotate(ctx, *group.AutoScalingGroupName); err != nil {
+			if *tag.Key == ownerKey && *tag.Value == "owned" {
+				log.Printf("ASG %s is owned by cluster %s.\n", *group.AutoScalingGroupName, *eksCluster.Name)
+				found = true
+				if err := r.Rotate(ctx, *group.AutoScalingGroupName); err != nil {
 					return err
 				}
 			}
 		}
 	}
+	if !found {
+		return fmt.Errorf("no ASGs found for cluster %s", *eksCluster.Name)
+	}
 	return nil
 }
 
-func Rotate(ctx context.Context, groupId string) error {
-	sess, err := session.NewSession()
-	if err != nil {
-		return err
-	}
-	asgClient := autoscaling.New(sess)
-	ec2Client := ec2.New(sess)
-	group, err := DescribeAutoScalingGroup(asgClient, groupId)
-	if err != nil {
-		return err
-	}
-	k8s, err := NewKubernetesClient()
+func (r *Rotator) Rotate(ctx context.Context, groupId string) error {
+	group, err := DescribeAutoScalingGroup(r.asg, groupId)
 	if err != nil {
 		return err
 	}
 
 	log.Printf("Rotating ASG '%s'...\n", groupId)
 	for _, id := range group.instanceIds {
-		log.Printf("Rotating Instance '%s'...\n", id)
-		if err := RotateInstance(ctx, k8s, asgClient, ec2Client, groupId, id, false); err != nil {
+		if err := r.RotateInstance(ctx, groupId, id, false); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func RotateByInternalDNS(ctx context.Context, instanceInternalIP string, removeNode bool) error {
-	sess, err := session.NewSession()
+func (r *Rotator) RotateByInternalDNS(ctx context.Context, instanceInternalIP string, removeNode bool) error {
+	instanceID, groupID, err := DescribeInstanceByInternalDNS(r.ec2, r.asg, instanceInternalIP)
 	if err != nil {
 		return err
 	}
-	asgClient := autoscaling.New(sess)
-	ec2Client := ec2.New(sess)
-	instanceID, groupID, err := DescribeInstanceByInternalDNS(ec2Client, asgClient, instanceInternalIP)
-	if err != nil {
-		return err
-	}
-	k8s, err := NewKubernetesClient()
-	if err != nil {
-		return err
-	}
-	return RotateInstance(ctx, k8s, asgClient, ec2Client, groupID, instanceID, removeNode)
+	return r.RotateInstance(ctx, groupID, instanceID, removeNode)
 }
 
-func RotateInstance(
+func (r *Rotator) RotateInstance(
 	ctx context.Context,
-	k8s *kubernetes.Clientset,
-	asg *autoscaling.AutoScaling,
-	ec2 *ec2.EC2,
 	groupId string,
 	instanceId string,
 	removeNode bool,
 ) error {
-	node, err := GetNodeByInstanceID(ctx, k8s, instanceId)
+	node, err := GetNodeByInstanceID(ctx, r.k8s, instanceId)
 	if err != nil {
 		return err
 	}
-	if err := CordonNode(ctx, k8s, node); err != nil {
+
+	log.Printf("Rotating node %s (instance %s).\n", node.Name, instanceId)
+
+	if r.dryrun {
+		log.Println("DRY RUN is enabled. Skipping rotate.")
+		return nil
+	}
+
+	if err := CordonNode(ctx, r.k8s, node); err != nil {
 		return err
 	}
-	nodeSet, err := GetClusterNodeSet(ctx, k8s)
+	nodeSet, err := GetClusterNodeSet(ctx, r.k8s)
 	if err != nil {
 		return err
 	}
-	if err := DetachInstance(asg, groupId, instanceId, removeNode); err != nil {
+	if err := DetachInstance(r.asg, groupId, instanceId, removeNode); err != nil {
 		return err
 	}
 
 	if !removeNode {
-		if err := AwaitNewNodeReady(ctx, k8s, nodeSet); err != nil {
+		if err := AwaitNewNodeReady(ctx, r.k8s, nodeSet); err != nil {
 			return err
 		}
 	}
 
-	if err := DrainNode(ctx, k8s, node); err != nil {
+	if err := DrainNode(ctx, r.k8s, node); err != nil {
 		return err
 	}
-	if err := TerminateInstanceByID(ec2, instanceId); err != nil {
+	if err := TerminateInstanceByID(r.ec2, instanceId); err != nil {
 		return err
 	}
 	return nil
