@@ -15,8 +15,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubectl/pkg/drain"
-
-	"github.com/tenjin/rotate-eks-asg/internal/pkg/cmd"
 )
 
 var (
@@ -152,6 +150,7 @@ func getDrainHelper(ctx context.Context, k8s *kubernetes.Clientset) *drain.Helpe
 }
 
 func DrainNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
+	log.Printf("Draining node %s.", node.Name)
 	helper := getDrainHelper(ctx, k8s)
 	err := drain.RunNodeDrain(helper, node.Name)
 	if err != nil {
@@ -161,17 +160,11 @@ func DrainNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node
 }
 
 func CordonNode(ctx context.Context, k8s *kubernetes.Clientset, node *coreV1.Node) error {
+	log.Printf("Cordoning node %s.", node.Name)
 	helper := getDrainHelper(ctx, k8s)
 	err := drain.RunCordonOrUncordon(helper, node, true)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-func kubectl(ctx context.Context, args ...string) error {
-	c := cmd.New("/usr/local/bin/kubectl",
-		cmd.WithImplicitEnv(),
-		cmd.WithArgs(args...))
-	return c.Execute(ctx)
 }

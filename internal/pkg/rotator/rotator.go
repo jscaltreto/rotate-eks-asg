@@ -60,14 +60,14 @@ func (r *Rotator) RotateForCluster(ctx context.Context) error {
 		return err
 	}
 
-	eksCluster, err := getEKSCluserByURL(eksClient, k8sConfig.Host)
+	eksCluster, err := GetEKSCluserByURL(eksClient, k8sConfig.Host)
 	if err != nil {
 		return err
 	}
 
 	ownerKey := fmt.Sprintf("k8s.io/cluster/%s", *eksCluster.Name)
 
-	groups, err := getAllAutoScalingGroups(r.asg)
+	groups, err := GetAllAutoScalingGroups(r.asg)
 	if err != nil {
 		return err
 	}

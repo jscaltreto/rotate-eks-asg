@@ -1,7 +1,6 @@
 package rotator
 
 import (
-	"errors"
 	"fmt"
 	"log"
 
@@ -51,7 +50,7 @@ func DescribeInstanceByInternalDNS(
 		return "", "", err
 	}
 	if instanceID == "" {
-		return "", "", errors.New(fmt.Sprintf("%s: No matching instance could be found", instanceInternalDNS))
+		return "", "", fmt.Errorf("%s: No matching instance could be found", instanceInternalDNS)
 	}
 
 	log.Printf("Internal DNS '%s' is instance ID '%s'", instanceInternalDNS, instanceID)
@@ -72,13 +71,13 @@ func DescribeInstanceByInternalDNS(
 		return "", "", err
 	}
 	if groupName == "" {
-		return "", "", errors.New(fmt.Sprintf("%s: No matching ASG could be found", instanceInternalDNS))
+		return "", "", fmt.Errorf("%s: No matching ASG could be found", instanceInternalDNS)
 	}
 
 	return instanceID, groupName, nil
 }
 
-func getAllAutoScalingGroups(client *autoscaling.AutoScaling) ([]*autoscaling.Group, error) {
+func GetAllAutoScalingGroups(client *autoscaling.AutoScaling) ([]*autoscaling.Group, error) {
 	var groups []*autoscaling.Group
 	in := &autoscaling.DescribeAutoScalingGroupsInput{
 		MaxRecords: aws.Int64(100),
@@ -137,7 +136,7 @@ func TerminateInstanceByID(client *ec2.EC2, id string) error {
 	return nil
 }
 
-func getEKSCluserByURL(client *eks.EKS, url string) (*eks.Cluster, error) {
+func GetEKSCluserByURL(client *eks.EKS, url string) (*eks.Cluster, error) {
 	listOutput, err := client.ListClusters(nil)
 	if err != nil {
 		return nil, err
