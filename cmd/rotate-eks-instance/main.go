@@ -23,7 +23,7 @@ func init() {
 func main() {
 	kingpin.Parse()
 
-	r, err := rotator.NewRotator(*dryRun, 0)
+	r, err := rotator.NewRotator(*dryRun, 0, "")
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -9,6 +9,108 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 )
 
+// WaitUntilAddonActive uses the Amazon EKS API operation
+// DescribeAddon to wait for a condition to be met before returning.
+// If the condition is not met within the max attempt window, an error will
+// be returned.
+func (c *EKS) WaitUntilAddonActive(input *DescribeAddonInput) error {
+	return c.WaitUntilAddonActiveWithContext(aws.BackgroundContext(), input)
+}
+
+// WaitUntilAddonActiveWithContext is an extended version of WaitUntilAddonActive.
+// With the support for passing in a context and options to configure the
+// Waiter and the underlying request options.
+//
+// The context must be non-nil and will be used for request cancellation. If
+// the context is nil a panic will occur. In the future the SDK may create
+// sub-contexts for http.Requests. See https://golang.org/pkg/context/
+// for more information on using Contexts.
+func (c *EKS) WaitUntilAddonActiveWithContext(ctx aws.Context, input *DescribeAddonInput, opts ...request.WaiterOption) error {
+	w := request.Waiter{
+		Name:        "WaitUntilAddonActive",
+		MaxAttempts: 60,
+		Delay:       request.ConstantWaiterDelay(10 * time.Second),
+		Acceptors: []request.WaiterAcceptor{
+			{
+				State:   request.FailureWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "addon.status",
+				Expected: "CREATE_FAILED",
+			},
+			{
+				State:   request.SuccessWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "addon.status",
+				Expected: "ACTIVE",
+			},
+		},
+		Logger: c.Config.Logger,
+		NewRequest: func(opts []request.Option) (*request.Request, error) {
+			var inCpy *DescribeAddonInput
+			if input != nil {
+				tmp := *input
+				inCpy = &tmp
+			}
+			req, _ := c.DescribeAddonRequest(inCpy)
+			req.SetContext(ctx)
+			req.ApplyOptions(opts...)
+			return req, nil
+		},
+	}
+	w.ApplyOptions(opts...)
+
+	return w.WaitWithContext(ctx)
+}
+
+// WaitUntilAddonDeleted uses the Amazon EKS API operation
+// DescribeAddon to wait for a condition to be met before returning.
+// If the condition is not met within the max attempt window, an error will
+// be returned.
+func (c *EKS) WaitUntilAddonDeleted(input *DescribeAddonInput) error {
+	return c.WaitUntilAddonDeletedWithContext(aws.BackgroundContext(), input)
+}
+
+// WaitUntilAddonDeletedWithContext is an extended version of WaitUntilAddonDeleted.
+// With the support for passing in a context and options to configure the
+// Waiter and the underlying request options.
+//
+// The context must be non-nil and will be used for request cancellation. If
+// the context is nil a panic will occur. In the future the SDK may create
+// sub-contexts for http.Requests. See https://golang.org/pkg/context/
+// for more information on using Contexts.
+func (c *EKS) WaitUntilAddonDeletedWithContext(ctx aws.Context, input *DescribeAddonInput, opts ...request.WaiterOption) error {
+	w := request.Waiter{
+		Name:        "WaitUntilAddonDeleted",
+		MaxAttempts: 60,
+		Delay:       request.ConstantWaiterDelay(10 * time.Second),
+		Acceptors: []request.WaiterAcceptor{
+			{
+				State:   request.FailureWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "addon.status",
+				Expected: "DELETE_FAILED",
+			},
+			{
+				State:    request.SuccessWaiterState,
+				Matcher:  request.ErrorWaiterMatch,
+				Expected: "ResourceNotFoundException",
+			},
+		},
+		Logger: c.Config.Logger,
+		NewRequest: func(opts []request.Option) (*request.Request, error) {
+			var inCpy *DescribeAddonInput
+			if input != nil {
+				tmp := *input
+				inCpy = &tmp
+			}
+			req, _ := c.DescribeAddonRequest(inCpy)
+			req.SetContext(ctx)
+			req.ApplyOptions(opts...)
+			return req, nil
+		},
+	}
+	w.ApplyOptions(opts...)
+
+	return w.WaitWithContext(ctx)
+}
+
 // WaitUntilClusterActive uses the Amazon EKS API operation
 // DescribeCluster to wait for a condition to be met before returning.
 // If the condition is not met within the max attempt window, an error will
@@ -111,6 +213,108 @@ func (c *EKS) WaitUntilClusterDeletedWithContext(ctx aws.Context, input *Describ
 				inCpy = &tmp
 			}
 			req, _ := c.DescribeClusterRequest(inCpy)
+			req.SetContext(ctx)
+			req.ApplyOptions(opts...)
+			return req, nil
+		},
+	}
+	w.ApplyOptions(opts...)
+
+	return w.WaitWithContext(ctx)
+}
+
+// WaitUntilNodegroupActive uses the Amazon EKS API operation
+// DescribeNodegroup to wait for a condition to be met before returning.
+// If the condition is not met within the max attempt window, an error will
+// be returned.
+func (c *EKS) WaitUntilNodegroupActive(input *DescribeNodegroupInput) error {
+	return c.WaitUntilNodegroupActiveWithContext(aws.BackgroundContext(), input)
+}
+
+// WaitUntilNodegroupActiveWithContext is an extended version of WaitUntilNodegroupActive.
+// With the support for passing in a context and options to configure the
+// Waiter and the underlying request options.
+//
+// The context must be non-nil and will be used for request cancellation. If
+// the context is nil a panic will occur. In the future the SDK may create
+// sub-contexts for http.Requests. See https://golang.org/pkg/context/
+// for more information on using Contexts.
+func (c *EKS) WaitUntilNodegroupActiveWithContext(ctx aws.Context, input *DescribeNodegroupInput, opts ...request.WaiterOption) error {
+	w := request.Waiter{
+		Name:        "WaitUntilNodegroupActive",
+		MaxAttempts: 80,
+		Delay:       request.ConstantWaiterDelay(30 * time.Second),
+		Acceptors: []request.WaiterAcceptor{
+			{
+				State:   request.FailureWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "nodegroup.status",
+				Expected: "CREATE_FAILED",
+			},
+			{
+				State:   request.SuccessWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "nodegroup.status",
+				Expected: "ACTIVE",
+			},
+		},
+		Logger: c.Config.Logger,
+		NewRequest: func(opts []request.Option) (*request.Request, error) {
+			var inCpy *DescribeNodegroupInput
+			if input != nil {
+				tmp := *input
+				inCpy = &tmp
+			}
+			req, _ := c.DescribeNodegroupRequest(inCpy)
+			req.SetContext(ctx)
+			req.ApplyOptions(opts...)
+			return req, nil
+		},
+	}
+	w.ApplyOptions(opts...)
+
+	return w.WaitWithContext(ctx)
+}
+
+// WaitUntilNodegroupDeleted uses the Amazon EKS API operation
+// DescribeNodegroup to wait for a condition to be met before returning.
+// If the condition is not met within the max attempt window, an error will
+// be returned.
+func (c *EKS) WaitUntilNodegroupDeleted(input *DescribeNodegroupInput) error {
+	return c.WaitUntilNodegroupDeletedWithContext(aws.BackgroundContext(), input)
+}
+
+// WaitUntilNodegroupDeletedWithContext is an extended version of WaitUntilNodegroupDeleted.
+// With the support for passing in a context and options to configure the
+// Waiter and the underlying request options.
+//
+// The context must be non-nil and will be used for request cancellation. If
+// the context is nil a panic will occur. In the future the SDK may create
+// sub-contexts for http.Requests. See https://golang.org/pkg/context/
+// for more information on using Contexts.
+func (c *EKS) WaitUntilNodegroupDeletedWithContext(ctx aws.Context, input *DescribeNodegroupInput, opts ...request.WaiterOption) error {
+	w := request.Waiter{
+		Name:        "WaitUntilNodegroupDeleted",
+		MaxAttempts: 40,
+		Delay:       request.ConstantWaiterDelay(30 * time.Second),
+		Acceptors: []request.WaiterAcceptor{
+			{
+				State:   request.FailureWaiterState,
+				Matcher: request.PathWaiterMatch, Argument: "nodegroup.status",
+				Expected: "DELETE_FAILED",
+			},
+			{
+				State:    request.SuccessWaiterState,
+				Matcher:  request.ErrorWaiterMatch,
+				Expected: "ResourceNotFoundException",
+			},
+		},
+		Logger: c.Config.Logger,
+		NewRequest: func(opts []request.Option) (*request.Request, error) {
+			var inCpy *DescribeNodegroupInput
+			if input != nil {
+				tmp := *input
+				inCpy = &tmp
+			}
+			req, _ := c.DescribeNodegroupRequest(inCpy)
 			req.SetContext(ctx)
 			req.ApplyOptions(opts...)
 			return req, nil

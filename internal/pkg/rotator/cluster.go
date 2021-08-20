@@ -28,18 +28,6 @@ func GetClusterConfig() (*rest.Config, error) {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
 }
 
-func NewKubernetesClient() (*kubernetes.Clientset, error) {
-	config, err := GetClusterConfig()
-	if err != nil {
-		return nil, err
-	}
-	k8s, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	return k8s, nil
-}
-
 func GetClusterNodeSet(ctx context.Context, k8s *kubernetes.Clientset) (sets.String, error) {
 	nodes, err := getClusterNodes(ctx, k8s)
 	if err != nil {

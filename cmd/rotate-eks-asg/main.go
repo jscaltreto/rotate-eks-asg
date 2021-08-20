@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	groups = kingpin.Arg("groups", "EKS Auto Scaling Groups to rotate. Omit to rotate all ASGs for the current cluster").Strings()
-	dryRun = kingpin.Flag("dryrun", "Don't actually rotate nodes, just print what would be rotated").Default("false").Bool()
-	limit  = kingpin.Flag("limit", "Only rotate [limit] oldest node(s)").Uint()
+	groups  = kingpin.Arg("groups", "EKS Auto Scaling Groups to rotate. Omit to rotate all ASGs for the current cluster").Strings()
+	dryRun  = kingpin.Flag("dryrun", "Don't actually rotate nodes, just print what would be rotated").Default("false").Bool()
+	limit   = kingpin.Flag("limit", "Only rotate [limit] oldest node(s)").Uint()
+	cluster = kingpin.Flag("cluster", "Name of Kubernetes cluster to rotate").String()
 )
 
 func init() {
@@ -24,7 +25,7 @@ func main() {
 	kingpin.Parse()
 	ctx, cancel := ctxutil.ContextWithCancelSignals(os.Kill, os.Interrupt)
 
-	r, err := rotator.NewRotator(*dryRun, *limit)
+	r, err := rotator.NewRotator(*dryRun, *limit, *cluster)
 	if err != nil {
 		log.Fatal(err)
 	}

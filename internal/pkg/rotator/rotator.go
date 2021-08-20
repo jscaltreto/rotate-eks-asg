@@ -12,36 +12,53 @@ import (
 	"github.com/aws/aws-sdk-go/service/eks"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/exec"
+	"k8s.io/client-go/rest"
 )
 
 type Rotator struct {
-	dryrun  bool
-	limit   uint
-	session *session.Session
-	asg     *autoscaling.AutoScaling
-	ec2     *ec2.EC2
-	k8s     *kubernetes.Clientset
+	dryrun    bool
+	limit     uint
+	session   *session.Session
+	asg       *autoscaling.AutoScaling
+	ec2       *ec2.EC2
+	eks       *eks.EKS
+	k8sConfig *rest.Config
+	k8s       *kubernetes.Clientset
 }
 
-func NewRotator(dryrun bool, limit uint) (*Rotator, error) {
+func NewRotator(dryrun bool, limit uint, clusterName string) (*Rotator, error) {
 	sess, err := session.NewSession()
 	if err != nil {
 		return nil, err
 	}
 	asgClient := autoscaling.New(sess)
 	ec2Client := ec2.New(sess)
-	k8s, err := NewKubernetesClient()
+	eksClient := eks.New(sess)
+
+	var k8sConfig *rest.Config
+	if clusterName == "" {
+		k8sConfig, err = GetClusterConfig()
+	} else {
+		k8sConfig, err = GetK8sConfigByClusterName(eksClient, clusterName)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	k8s, err := kubernetes.NewForConfig(k8sConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	r := &Rotator{
-		dryrun:  dryrun,
-		limit:   limit,
-		session: sess,
-		asg:     asgClient,
-		ec2:     ec2Client,
-		k8s:     k8s,
+		dryrun:    dryrun,
+		limit:     limit,
+		session:   sess,
+		asg:       asgClient,
+		ec2:       ec2Client,
+		eks:       eksClient,
+		k8sConfig: k8sConfig,
+		k8s:       k8s,
 	}
 	return r, nil
 }
@@ -56,14 +73,7 @@ func (r *Rotator) RotateAll(ctx context.Context, groups []string) error {
 }
 
 func (r *Rotator) RotateForCluster(ctx context.Context) error {
-	eksClient := eks.New(r.session)
-
-	k8sConfig, err := GetClusterConfig()
-	if err != nil {
-		return err
-	}
-
-	eksCluster, err := GetEKSCluserByURL(eksClient, k8sConfig.Host)
+	eksCluster, err := GetEKSCluserByURL(r.eks, r.k8sConfig.Host)
 	if err != nil {
 		return err
 	}

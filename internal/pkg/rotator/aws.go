@@ -1,6 +1,7 @@
 package rotator
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 
@@ -8,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/eks"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/aws-iam-authenticator/pkg/token"
 )
 
 type InstanceGroup struct {
@@ -177,22 +180,62 @@ func TerminateInstanceByID(client *ec2.EC2, id string) error {
 	return nil
 }
 
+func GetEKSCluserByName(client *eks.EKS, name string) (*eks.Cluster, error) {
+	cluserInput := &eks.DescribeClusterInput{
+		Name: aws.String(name),
+	}
+	clusterDesc, err := client.DescribeCluster(cluserInput)
+	if err != nil {
+		return nil, err
+	}
+	return clusterDesc.Cluster, nil
+}
+
+func getK8sConfigForCluster(cluster *eks.Cluster) (*rest.Config, error) {
+	gen, err := token.NewGenerator(true, false)
+	if err != nil {
+		return nil, err
+	}
+	opts := &token.GetTokenOptions{ClusterID: aws.StringValue(cluster.Name)}
+	tok, err := gen.GetWithOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	ca, err := base64.StdEncoding.DecodeString(aws.StringValue(cluster.CertificateAuthority.Data))
+	if err != nil {
+		return nil, err
+	}
+
+	return &rest.Config{
+		Host:        aws.StringValue(cluster.Endpoint),
+		BearerToken: tok.Token,
+		TLSClientConfig: rest.TLSClientConfig{
+			CAData: ca,
+		},
+	}, nil
+}
+
 func GetEKSCluserByURL(client *eks.EKS, url string) (*eks.Cluster, error) {
 	listOutput, err := client.ListClusters(nil)
 	if err != nil {
 		return nil, err
 	}
-	for _, cluster := range listOutput.Clusters {
-		cluserInput := &eks.DescribeClusterInput{
-			Name: aws.String(*cluster),
-		}
-		clusterDesc, err := client.DescribeCluster(cluserInput)
+	for _, clusterName := range listOutput.Clusters {
+		cluster, err := GetEKSCluserByName(client, *clusterName)
 		if err != nil {
 			return nil, err
 		}
-		if *clusterDesc.Cluster.Endpoint == url {
-			return clusterDesc.Cluster, nil
+		if *cluster.Endpoint == url {
+			return cluster, nil
 		}
 	}
 	return nil, fmt.Errorf("unable to find cluster with URL %s", url)
+}
+
+func GetK8sConfigByClusterName(client *eks.EKS, clusterName string) (*rest.Config, error) {
+	cluster, err := GetEKSCluserByName(client, clusterName)
+	if err != nil {
+		return nil, err
+	}
+	return getK8sConfigForCluster(cluster)
 }
